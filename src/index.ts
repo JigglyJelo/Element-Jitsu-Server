@@ -48,7 +48,7 @@ const io = new SocketIOServer(server, {
 // Register your socket handlers
 registerSocketHandlers(io);
 
-// Start listening on Azure’s provided port (or 3000 locally)
+// Start listening on provided port (or 3000 locally)
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
