@@ -509,6 +509,13 @@ export function registerSocketHandlers(io: SocketIOServer) {
                   winningStats.grassWinPowers.push(winPower);
                   break;
               }
+            }else if (winPower == 0) {
+              let halfMaxPower: number = Math.ceil(lobby.lobbySettings.maxStoredPower * 0.5);
+              const winningElementKey = (move.element + 'Points') as 'firePoints' | 'waterPoints' | 'grassPoints';
+              winningStats[winningElementKey] += halfMaxPower;
+              //winningStats["firePoints"] += halfMaxPower;
+              //winningStats["waterPoints"] += halfMaxPower;
+              //winningStats["grassPoints"] += halfMaxPower;
             }
           }
 
@@ -622,13 +629,8 @@ export function registerSocketHandlers(io: SocketIOServer) {
                 gameOver: payload 
               });
             
-              // 2) (Optionally) still emit the normal “gameOver” if you need backwards compatibility:
-              //    io.to(String(lid)).emit('gameOver', payload);
-            
               lobby.gameInProgress = false;
             }
-          
-            // … rest of your removal logic …
           }
         
           // Remove player from lobby, reassign host, etc.
