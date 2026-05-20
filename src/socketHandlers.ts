@@ -129,6 +129,11 @@ export function registerSocketHandlers(io: SocketIOServer) {
           return callback({ success: false, error: 'Username too long' });
         }
         if (socket.data.lobbyId !== null) {
+          // If double-fired, the server already made the lobby moments ago
+          // Just return the ID of the lobby we just made for them
+          if (socket.data.username === username) {
+            return callback({ success: true, lobbyId: socket.data.lobbyId });
+          }
           return callback({ success: false, error: 'You are already in a lobby. Leave it first.' });
         }
         const lobbyId = generateLobbyId();
@@ -186,6 +191,10 @@ export function registerSocketHandlers(io: SocketIOServer) {
       ) => {
         const { lobbyId, username } = data;
         if (socket.data.lobbyId !== null) {
+          // If double-fired, but they are already in the lobby, just say success
+          if (socket.data.lobbyId === lobbyId && socket.data.username === username) {
+            return callback({ success: true });
+          }
           return callback({ success: false, error: 'You are already in a lobby. Leave it first.' });
         }
         const lobby = lobbies[lobbyId];
