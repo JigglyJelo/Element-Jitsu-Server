@@ -5,8 +5,15 @@ export const lobbies: Record<number, Lobby> = {};
 
 export function generateLobbyId(): number {
   let id: number;
+  let attempts: number = 0;
   do {
     id = Math.floor(1000 + Math.random() * 9000);
+    attempts++;
+    if (attempts > 100) {
+      if (Object.keys(lobbies).length >= 9000) return -1;
+    }else if(attempts > 500) {
+      return -1;
+    }
   } while (lobbies[id]);
   return id;
 }
@@ -50,5 +57,3 @@ export function startNewLobbyGame(lobby: Lobby): void {
 export function clamp1to99(n: number): number {
   return Math.max(1, Math.min(99, Math.round(n)));
 }
-
-// (Optionally add helpers like getLobby, validateUsername, etc.)

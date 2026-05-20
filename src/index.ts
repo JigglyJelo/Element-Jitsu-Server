@@ -38,7 +38,7 @@ const io = new SocketIOServer(server, {
     origin: [
       'http://localhost:5173',
       'http://localhost:3000',
-      'https://jigglyjelo.github.io/Element-Jitsu-Client/',
+      'https://jigglyjelo.github.io/Element-Jitsu-Client',
     ],
     methods: ['GET', 'POST'],
     credentials: true

@@ -69,8 +69,25 @@ export function registerSocketHandlers(io: SocketIOServer) {
         if (lobby.host !== uname) {
           return callback({ success: false, error: 'Only host can change settings' });
         }
-
         const { field, delta } = data;
+        if (typeof delta !== 'number' || isNaN(delta)) {
+          return callback({ success: false, error: 'Invalid delta' });
+        }
+
+        const allowedFields = [
+          'startingElementPoints',
+          'duplicatesToWin',
+          'uniqueElementsToWin',
+          'needUniquePowersToWin',
+          'maxElementalPower',
+          'maxStoredPower',
+          'overchargeBonus'
+        ];
+
+        if (!allowedFields.includes(field as string)) {
+          return callback({ success: false, error: 'Invalid setting field' });
+        }
+        
         if (field === 'needUniquePowersToWin') {
           // Toggle boolean: delta === 1 means true, else false
           lobby.lobbySettings.needUniquePowersToWin = delta === 1;
@@ -105,10 +122,19 @@ export function registerSocketHandlers(io: SocketIOServer) {
         username: string,
         callback: (resp: { success: boolean; lobbyId?: number; error?: string }) => void
       ) => {
-        if (!username.trim()) {
+        if (typeof username !== 'string' || !username.trim()) {
           return callback({ success: false, error: 'Invalid username' });
         }
+        if (username.length > 20) {
+          return callback({ success: false, error: 'Username too long' });
+        }
+        if (socket.data.lobbyId !== null) {
+          return callback({ success: false, error: 'You are already in a lobby. Leave it first.' });
+        }
         const lobbyId = generateLobbyId();
+        if (lobbyId === -1) {
+          return callback({ success: false, error: 'Server is full, cannot create lobby' });
+        }
         const defaultSettings = createDefaultLobbySettings();
 
         // Build empty PlayerStats with starting points
@@ -159,12 +185,24 @@ export function registerSocketHandlers(io: SocketIOServer) {
         callback: (resp: { success: boolean; error?: string }) => void
       ) => {
         const { lobbyId, username } = data;
+        if (socket.data.lobbyId !== null) {
+          return callback({ success: false, error: 'You are already in a lobby. Leave it first.' });
+        }
         const lobby = lobbies[lobbyId];
         if (!lobby) {
           return callback({ success: false, error: 'Lobby does not exist' });
         }
-        if (!username.trim()) {
+        if (!username || typeof username !== 'string' || !username.trim()) {
           return callback({ success: false, error: 'Invalid username' });
+        }
+        if (username.length > 20) {
+          return callback({ success: false, error: 'Username too long' });
+        }
+        if (lobby.members.size >= 2) {
+          return callback({ success: false, error: 'Lobby is full' });
+        }
+        if (lobby.members.has(username)) {
+          return callback({ success: false, error: 'Username is already taken in this lobby' });
         }
 
         lobby.members.add(username);
@@ -219,9 +257,41 @@ export function registerSocketHandlers(io: SocketIOServer) {
     socket.on('leaveLobby', () => {
       const lid   = socket.data.lobbyId as number | null;
       const uname = socket.data.username as string | null;
+      
       if (lid !== null && uname) {
         const lobby = lobbies[lid];
+        
+        // 1. MUST check if lobby exists first!
         if (lobby) {
+          
+          // 2. NOW check if a game was in progress
+          if (lobby.gameInProgress) {
+            const allPlayers = Array.from(lobby.members);
+            const survivors = allPlayers.filter((u) => u !== uname);
+            
+            if (survivors.length === 1) {
+              const other = survivors[0];
+              const p1 = allPlayers[0];
+              const p2 = allPlayers[1];
+              
+              const payload: GameOverPayload = {
+                winner: other,
+                stats: {
+                  [p1]: lobby.playerOneStats,
+                  [p2]: lobby.playerTwoStats,
+                },
+              };
+              
+              io.to(String(lid)).emit('opponentDisconnected', { 
+                disconnected: uname, 
+                gameOver: payload 
+              });
+              
+              lobby.gameInProgress = false;
+            }
+          }
+
+          // 3. Proceed with the normal removal logic
           lobby.members.delete(uname);
           lobby.ready.delete(uname);
           delete lobby.moves[uname];
@@ -273,6 +343,9 @@ export function registerSocketHandlers(io: SocketIOServer) {
         if (lobby.host !== uname) {
           return callback({ success: false, error: 'Only host can start' });
         }
+        if (lobby.gameInProgress) {
+          return callback({ success: false, error: 'A game is already in progress' });
+        }
         if (lobby.members.size < 2) {
           return callback({ success: false, error: 'Need two players to start' });
         }
@@ -310,15 +383,43 @@ export function registerSocketHandlers(io: SocketIOServer) {
         data: { lobbyId: number; username: string; move: { element: MoveElement; power: number } },
         callback: (resp: { success: boolean; error?: string }) => void
       ) => {
-        const { lobbyId, username, move } = data;
+        const { move } = data;
+        const lobbyId = socket.data.lobbyId as number | null;
+        const username = socket.data.username as string | null;
+        // Error and exploit checks
+        if (lobbyId === null || !username) {
+          return callback({ success: false, error: 'Not authenticated in a lobby' });
+        }
         const lobby = lobbies[lobbyId];
+        
+        if (!move || typeof move !== 'object') {
+          return callback({ success: false, error: 'Invalid move data' });
+        }
         if (!lobby) {
           return callback({ success: false, error: 'Lobby does not exist' });
+        }
+        if (!lobby.gameInProgress) {
+          return callback({ success: false, error: 'Game is not currently in progress' });
         }
         if (!lobby.members.has(username)) {
           return callback({ success: false, error: 'Player not in lobby' });
         }
-
+        if (lobby.moves[username]) {
+          return callback({ success: false, error: 'You have already locked in your move for this round' });
+        }
+        if (typeof move.power !== 'number' || isNaN(move.power)) {
+          return callback({ success: false, error: 'Power must be a number' });
+        }
+        move.power = Math.floor(move.power);
+        if(move.power < 0) {
+          return callback({ success: false, error: 'Can\'t have negative power' });
+        }
+        if (!['fire', 'water', 'grass'].includes(move.element)) {
+          return callback({ success: false, error: 'Invalid element' });
+        }
+        if (move.power > lobby.lobbySettings.maxElementalPower) {
+          return callback({ success: false, error: `Power cannot exceed ${lobby.lobbySettings.maxElementalPower}` });
+        }
         // Deduct points and record the move
         const isHost = username === lobby.host;
         const currentStats = isHost ? lobby.playerOneStats : lobby.playerTwoStats;
