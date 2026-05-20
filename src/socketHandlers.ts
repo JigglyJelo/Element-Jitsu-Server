@@ -190,13 +190,27 @@ export function registerSocketHandlers(io: SocketIOServer) {
         callback: (resp: { success: boolean; error?: string }) => void
       ) => {
         const { lobbyId, username } = data;
+        
         if (socket.data.lobbyId !== null) {
-          // If double-fired, but they are already in the lobby, just say success
+          // React Strict Mode bypass
           if (socket.data.lobbyId === lobbyId && socket.data.username === username) {
+            // Emitting settings back to fix the blank screen bug
+            const currentLobby = lobbies[lobbyId];
+            if (currentLobby) {
+              socket.emit('lobbyUpdate', {
+                members: Array.from(currentLobby.members),
+                host: currentLobby.host,
+                lobbySettings: currentLobby.lobbySettings,
+              });
+              socket.emit('lobbyReadyUpdate', {
+                ready: Array.from(currentLobby.ready),
+              });
+            }
             return callback({ success: true });
           }
           return callback({ success: false, error: 'You are already in a lobby. Leave it first.' });
         }
+        
         const lobby = lobbies[lobbyId];
         if (!lobby) {
           return callback({ success: false, error: 'Lobby does not exist' });
@@ -250,12 +264,14 @@ export function registerSocketHandlers(io: SocketIOServer) {
           return callback({ success: false, error: 'Player not in lobby' });
         }
 
-        lobby.ready.add(uname);
-        console.log(`Lobby ${lid}: ${uname} is ready`);
+        if (!lobby.ready.has(uname)) {
+          lobby.ready.add(uname);
+          console.log(`Lobby ${lid}: ${uname} is ready`);
 
-        io.to(String(lid)).emit('lobbyReadyUpdate', {
-          ready: Array.from(lobby.ready),
-        });
+          io.to(String(lid)).emit('lobbyReadyUpdate', {
+            ready: Array.from(lobby.ready),
+          });
+        }
         callback({ success: true });
       }
     );
